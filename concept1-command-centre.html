@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HaulRoute AU — Command Centre</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;600;700;900&family=Barlow:wght@300;400;500&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111418;
+    --panel: #161b22;
+    --border: #2a3040;
+    --accent: #f59e0b;
+    --accent2: #22d3ee;
+    --danger: #ef4444;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --success: #22c55e;
+    --grid: rgba(34,211,238,0.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Barlow', sans-serif; background: var(--bg); color: var(--text); overflow-x: hidden; }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  }
+
+  /* TOP BAR */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: 52px;
+    background: rgba(10,12,15,0.95);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    backdrop-filter: blur(12px);
+  }
+  .logo {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 900; font-size: 22px; letter-spacing: 2px;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .logo span { color: var(--accent2); }
+  .status-bar {
+    display: flex; gap: 20px; align-items: center;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--muted);
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 5px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* MAIN LAYOUT */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    height: 100vh;
+    padding-top: 52px;
+  }
+
+  /* MAP SECTION */
+  .map-section {
+    position: relative;
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .map-header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    padding: 16px 20px;
+    background: linear-gradient(to bottom, rgba(10,12,15,0.9), transparent);
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .map-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 11px; font-weight: 600; letter-spacing: 3px;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .map-instructions {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; color: var(--accent2);
+    background: rgba(34,211,238,0.08);
+    border: 1px solid rgba(34,211,238,0.2);
+    padding: 4px 10px; border-radius: 2px;
+  }
+  svg#au-map {
+    width: 100%; height: 100%;
+    display: block;
+  }
+
+  /* SVG Map styles */
+  .state { fill: #1a2030; stroke: #2a3a50; stroke-width: 1; cursor: pointer; transition: fill 0.2s; }
+  .state:hover { fill: #253045; }
+  .city-dot { fill: var(--muted); stroke: var(--bg); stroke-width: 1.5; cursor: pointer; transition: all 0.2s; r: 5; }
+  .city-dot:hover { fill: var(--accent); r: 7; }
+  .city-dot.pickup { fill: var(--success); r: 8; filter: drop-shadow(0 0 6px var(--success)); }
+  .city-dot.dropoff { fill: var(--danger); r: 8; filter: drop-shadow(0 0 6px var(--danger)); }
+  .city-label { font-family: 'Barlow Condensed', sans-serif; font-size: 12px; fill: var(--muted); pointer-events: none; }
+  .route-line { stroke: var(--accent); stroke-width: 2; fill: none; stroke-dasharray: 8 4; stroke-dashoffset: 0; animation: dashMove 1.5s linear infinite; filter: drop-shadow(0 0 4px var(--accent)); }
+  @keyframes dashMove { to { stroke-dashoffset: -24; } }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+
+  /* coordinate readout */
+  .coord-hud {
+    position: absolute; bottom: 16px; left: 16px;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    color: var(--muted);
+    background: rgba(10,12,15,0.8);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: 2px;
+  }
+  .coord-hud span { color: var(--accent2); }
+
+  /* route info */
+  .route-hud {
+    position: absolute; bottom: 16px; right: 16px;
+    font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    color: var(--text);
+    background: rgba(10,12,15,0.9);
+    border: 1px solid var(--accent);
+    padding: 10px 14px;
+    border-radius: 2px;
+    display: none;
+  }
+  .route-hud.active { display: block; }
+  .route-hud .rh-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; }
+  .route-hud .rh-value { font-size: 18px; color: var(--accent); font-family: 'Barlow Condensed', sans-serif; font-weight: 700; }
+
+  /* FORM PANEL */
+  .form-panel {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  .panel-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: var(--panel);
+    z-index: 5;
+  }
+  .panel-tag {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 10px; font-weight: 600; letter-spacing: 3px;
+    color: var(--accent); text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .panel-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 26px; font-weight: 900; letter-spacing: 1px;
+    line-height: 1;
+  }
+  .panel-sub {
+    font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5;
+  }
+
+  .form-body { padding: 20px 24px; flex: 1; }
+
+  /* Selection display */
+  .route-display {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 20px;
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center;
+  }
+  .route-point { text-align: center; }
+  .rp-label { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; font-family: 'Share Tech Mono', monospace; margin-bottom: 4px; }
+  .rp-label.pickup { color: var(--success); }
+  .rp-label.dropoff { color: var(--danger); }
+  .rp-city { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700; color: var(--text); }
+  .rp-empty { font-size: 11px; color: var(--muted); font-style: italic; }
+  .route-arrow { font-size: 18px; color: var(--accent); }
+
+  /* Form sections */
+  .fs-title {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px; font-weight: 600; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 12px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .fs-title::before { content: '//'; color: var(--accent); font-family: 'Share Tech Mono', monospace; }
+
+  .fgroup { margin-bottom: 12px; }
+  .fgroup label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 5px; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+  .fgroup input, .fgroup select, .fgroup textarea {
+    width: 100%;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--text);
+    font-family: 'Barlow', sans-serif;
+    font-size: 13px;
+    padding: 8px 10px;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .fgroup input:focus, .fgroup select:focus, .fgroup textarea:focus {
+    border-color: var(--accent2);
+    box-shadow: 0 0 0 2px rgba(34,211,238,0.1);
+  }
+  .fgroup select option { background: var(--panel); }
+  .fgroup textarea { resize: vertical; min-height: 70px; }
+  .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .frow3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+  .section-gap { margin-bottom: 20px; }
+
+  /* urgency badge */
+  .urgency-row { display: flex; gap: 8px; }
+  .urgency-btn {
+    flex: 1; padding: 8px; text-align: center;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+    border-radius: 2px; cursor: pointer; font-size: 11px;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+    letter-spacing: 1px; color: var(--muted); transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .urgency-btn:hover, .urgency-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(245,158,11,0.08); }
+
+  /* Submit */
+  .submit-btn {
+    width: 100%; padding: 16px;
+    background: var(--accent);
+    color: #000; font-family: 'Barlow Condensed', sans-serif;
+    font-size: 16px; font-weight: 900; letter-spacing: 3px;
+    text-transform: uppercase; border: none; cursor: pointer;
+    border-radius: 2px; transition: all 0.2s;
+    margin-top: 4px;
+  }
+  .submit-btn:hover { background: #fbbf24; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(245,158,11,0.4); }
+  .submit-note {
+    font-size: 10px; color: var(--muted); text-align: center;
+    margin-top: 8px; font-family: 'Share Tech Mono', monospace;
+    line-height: 1.6;
+  }
+
+  /* Success */
+  .success-overlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.85);
+    justify-content: center; align-items: center;
+    backdrop-filter: blur(8px);
+  }
+  .success-overlay.show { display: flex; }
+  .success-box {
+    background: var(--panel);
+    border: 1px solid var(--success);
+    padding: 40px;
+    text-align: center;
+    max-width: 380px;
+    box-shadow: 0 0 40px rgba(34,197,94,0.2);
+  }
+  .success-icon { font-size: 48px; margin-bottom: 16px; }
+  .success-title { font-family: 'Barlow Condensed', sans-serif; font-size: 28px; font-weight: 900; color: var(--success); }
+  .success-msg { font-size: 14px; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+  .success-close {
+    margin-top: 24px; padding: 10px 28px;
+    background: var(--success); color: #000;
+    border: none; cursor: pointer;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 700;
+    font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+    border-radius: 2px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; height: auto; }
+    .form-panel { border-left: none; border-top: 1px solid var(--border); }
+    .map-section { height: 45vh; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">Haul<span>Route</span> AU</div>
+  <div class="status-bar">
+    <div><span class="status-dot"></span>SYS ONLINE</div>
+    <div id="live-clock">00:00:00</div>
+    <div>QUOTE ENGINE v2.4</div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- MAP -->
+  <div class="map-section">
+    <div class="map-header">
+      <div class="map-title">// ROUTE PLANNER — CLICK TO SET PICKUP, THEN DROP-OFF</div>
+      <div class="map-instructions" id="map-instr">SELECT PICKUP POINT</div>
+    </div>
+
+    <svg id="au-map" viewBox="0 0 800 680" xmlns="http://www.w3.org/2000/svg">
+      <!-- Grid -->
+      <defs>
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(34,211,238,0.04)" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="800" height="680" fill="#0d1117"/>
+      <rect width="800" height="680" fill="url(#grid)"/>
+
+      <!-- Australia outline (simplified but recognizable) -->
+      <!-- Western Australia -->
+      <polygon class="state" id="wa" points="
+        80,80 270,80 270,100 290,120 300,160 310,200 310,340 300,380 290,420 270,450 240,470 200,480 160,480 130,460 100,430 80,400 70,360 65,300 65,200 70,140
+      "/>
+      <!-- Northern Territory -->
+      <polygon class="state" id="nt" points="310,80 440,80 440,340 400,340 380,340 310,340 310,200 300,160 290,120 270,100 270,80"/>
+      <!-- Queensland -->
+      <polygon class="polygon state" id="qld" points="440,80 590,80 620,120 640,170 650,220 640,270 630,310 610,350 580,380 550,400 520,410 490,400 460,380 440,340 440,80"/>
+      <!-- South Australia -->
+      <polygon class="state" id="sa" points="310,340 440,340 440,440 420,460 400,470 380,480 360,485 340,490 320,485 300,475 290,460 290,420 300,380"/>
+      <!-- New South Wales -->
+      <polygon class="state" id="nsw" points="440,340 550,400 570,430 560,460 540,480 510,500 490,510 460,510 440,500 420,490 410,480 400,470 420,460 440,440"/>
+      <!-- Victoria -->
+      <polygon class="state" id="vic" points="400,470 420,490 440,500 460,510 490,510 510,500 520,520 510,540 490,550 460,555 430,550 400,535 380,515 385,495 395,480"/>
+      <!-- Tasmania -->
+      <ellipse class="state" id="tas" cx="490" cy="600" rx="35" ry="30"/>
+      <!-- ACT (small) -->
+      <circle class="state" id="act" cx="480" cy="490" r="8"/>
+
+      <!-- Route line (dynamic) -->
+      <line id="route-line" class="route-line" x1="0" y1="0" x2="0" y2="0" style="display:none"/>
+
+      <!-- City dots -->
+      <!-- Perth -->
+      <circle class="city-dot" data-city="Perth" data-x="115" data-y="360" cx="115" cy="360" r="5"/>
+      <text class="city-label" x="128" y="364">Perth</text>
+      <!-- Darwin -->
+      <circle class="city-dot" data-city="Darwin" data-x="350" data-y="105" cx="350" cy="105" r="5"/>
+      <text class="city-label" x="363" y="109">Darwin</text>
+      <!-- Adelaide -->
+      <circle class="city-dot" data-city="Adelaide" data-x="375" data-y="445" cx="375" cy="445" r="5"/>
+      <text class="city-label" x="388" y="449">Adelaide</text>
+      <!-- Melbourne -->
+      <circle class="city-dot" data-city="Melbourne" data-x="455" cy="530" cx="455" data-y="530" r="5"/>
+      <text class="city-label" x="462" y="525">Melbourne</text>
+      <!-- Sydney -->
+      <circle class="city-dot" data-city="Sydney" data-x="530" data-y="470" cx="530" cy="470" r="5"/>
+      <text class="city-label" x="543" y="474">Sydney</text>
+      <!-- Brisbane -->
+      <circle class="city-dot" data-city="Brisbane" data-x="580" data-y="340" cx="580" cy="340" r="5"/>
+      <text class="city-label" x="593" y="344">Brisbane</text>
+      <!-- Alice Springs -->
+      <circle class="city-dot" data-city="Alice Springs" data-x="370" data-y="270" cx="370" cy="270" r="5"/>
+      <text class="city-label" x="383" y="265">Alice Springs</text>
+      <!-- Cairns -->
+      <circle class="city-dot" data-city="Cairns" data-x="560" data-y="140" cx="560" cy="140" r="5"/>
+      <text class="city-label" x="568" y="135">Cairns</text>
+      <!-- Hobart -->
+      <circle class="city-dot" data-city="Hobart" data-x="490" data-y="600" cx="490" cy="600" r="5"/>
+      <text class="city-label" x="498" y="596">Hobart</text>
+
+      <!-- Pickup/dropoff icons (dynamic) -->
+      <g id="pickup-marker" style="display:none">
+        <circle cx="0" cy="0" r="12" fill="rgba(34,197,94,0.2)" stroke="#22c55e" stroke-width="2" id="pm-outer"/>
+        <circle cx="0" cy="0" r="5" fill="#22c55e" id="pm-inner"/>
+      </g>
+      <g id="dropoff-marker" style="display:none">
+        <circle cx="0" cy="0" r="12" fill="rgba(239,68,68,0.2)" stroke="#ef4444" stroke-width="2" id="dm-outer"/>
+        <circle cx="0" cy="0" r="5" fill="#ef4444" id="dm-inner"/>
+      </g>
+    </svg>
+
+    <div class="coord-hud">
+      LAT <span id="hud-lat">---.--</span> &nbsp; LNG <span id="hud-lng">---.--</span>
+    </div>
+    <div class="route-hud" id="route-hud">
+      <div class="rh-label">EST. DISTANCE</div>
+      <div class="rh-value" id="hud-dist">-- km</div>
+      <div class="rh-label" style="margin-top:8px">EST. TRANSIT</div>
+      <div class="rh-value" id="hud-transit">-- days</div>
+    </div>
+  </div>
+
+  <!-- FORM PANEL -->
+  <div class="form-panel">
+    <div class="panel-header">
+      <div class="panel-tag">// Freight Intelligence</div>
+      <div class="panel-title">REQUEST QUOTE</div>
+      <div class="panel-sub">Select route on map, complete details — we'll contact you within 2 hours.</div>
+    </div>
+    <div class="form-body">
+
+      <!-- Route display -->
+      <div class="route-display">
+        <div class="route-point">
+          <div class="rp-label pickup">PICKUP</div>
+          <div class="rp-city" id="pickup-display"><span class="rp-empty">Click map</span></div>
+        </div>
+        <div class="route-arrow">→</div>
+        <div class="route-point">
+          <div class="rp-label dropoff">DROP-OFF</div>
+          <div class="rp-city" id="dropoff-display"><span class="rp-empty">Click map</span></div>
+        </div>
+      </div>
+
+      <!-- Hidden route fields -->
+      <input type="hidden" id="f-pickup" value="">
+      <input type="hidden" id="f-dropoff" value="">
+
+      <!-- Contact -->
+      <div class="section-gap">
+        <div class="fs-title">Contact Details</div>
+        <div class="frow">
+          <div class="fgroup"><label>First Name</label><input type="text" id="f-fname" placeholder="John" required></div>
+          <div class="fgroup"><label>Last Name</label><input type="text" id="f-lname" placeholder="Smith" required></div>
+        </div>
+        <div class="fgroup"><label>Company (optional)</label><input type="text" id="f-company" placeholder="Smith Transport Pty Ltd"></div>
+        <div class="frow">
+          <div class="fgroup"><label>Phone</label><input type="tel" id="f-phone" placeholder="04XX XXX XXX" required></div>
+          <div class="fgroup"><label>Email</label><input type="email" id="f-email" placeholder="john@email.com" required></div>
+        </div>
+        <div class="fgroup">
+          <label>Preferred Contact</label>
+          <select id="f-contact-pref">
+            <option>Phone Call</option>
+            <option>Email</option>
+            <option>Either</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Truck Details -->
+      <div class="section-gap">
+        <div class="fs-title">Vehicle Details</div>
+        <div class="fgroup">
+          <label>Truck / Vehicle Type</label>
+          <select id="f-truck-type">
+            <option value="">— Select Type —</option>
+            <option>Rigid Truck (2-axle)</option>
+            <option>Semi-Trailer</option>
+            <option>B-Double</option>
+            <option>Road Train</option>
+            <option>Curtainsider</option>
+            <option>Flatbed / Drop-Deck</option>
+            <option>Refrigerated Truck</option>
+            <option>Car Carrier</option>
+            <option>Tipper Truck</option>
+            <option>Crane Truck</option>
+            <option>Other Heavy Vehicle</option>
+          </select>
+        </div>
+        <div class="frow">
+          <div class="fgroup"><label>Make</label><input type="text" id="f-make" placeholder="e.g. Kenworth"></div>
+          <div class="fgroup"><label>Model</label><input type="text" id="f-model" placeholder="e.g. T610"></div>
+        </div>
+        <div class="frow3">
+          <div class="fgroup"><label>Length (m)</label><input type="number" id="f-len" placeholder="0.0" step="0.1"></div>
+          <div class="fgroup"><label>Width (m)</label><input type="number" id="f-wid" placeholder="0.0" step="0.1"></div>
+          <div class="fgroup"><label>Height (m)</label><input type="number" id="f-hgt" placeholder="0.0" step="0.1"></div>
+        </div>
+        <div class="frow">
+          <div class="fgroup"><label>Weight (t)</label><input type="number" id="f-weight" placeholder="0.0" step="0.1"></div>
+          <div class="fgroup"><label>Year</label><input type="number" id="f-year" placeholder="2020"></div>
+        </div>
+        <div class="fgroup">
+          <label>Running Condition</label>
+          <select id="f-condition">
+            <option>Running — drives on/off under own power</option>
+            <option>Non-Running — requires tow/forklift</option>
+            <option>Partially Operational</option>
+          </select>
+        </div>
+        <div class="fgroup">
+          <label>Oversize / Overdimensional?</label>
+          <select id="f-oversize">
+            <option>No — standard dimensions</option>
+            <option>Yes — requires permit</option>
+            <option>Unsure</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Shipment details -->
+      <div class="section-gap">
+        <div class="fs-title">Shipment Details</div>
+        <div class="frow">
+          <div class="fgroup">
+            <label>Pickup Date</label>
+            <input type="date" id="f-date">
+          </div>
+          <div class="fgroup">
+            <label>Flexibility</label>
+            <select id="f-flex">
+              <option>Exact date</option>
+              <option>± 1–2 days</option>
+              <option>± 1 week</option>
+              <option>Flexible</option>
+            </select>
+          </div>
+        </div>
+        <div class="fgroup">
+          <label>Priority</label>
+          <div class="urgency-row">
+            <div class="urgency-btn" onclick="selectUrgency(this, 'Standard')">Standard</div>
+            <div class="urgency-btn" onclick="selectUrgency(this, 'Expedited')">Expedited</div>
+            <div class="urgency-btn" onclick="selectUrgency(this, 'Emergency')">Emergency</div>
+          </div>
+          <input type="hidden" id="f-priority" value="Standard">
+        </div>
+        <div class="fgroup">
+          <label>Special Requirements / Notes</label>
+          <textarea id="f-notes" placeholder="Permit requirements, access restrictions, hazmat, insurance notes, etc."></textarea>
+        </div>
+      </div>
+
+      <button class="submit-btn" onclick="submitForm()">▶ TRANSMIT QUOTE REQUEST</button>
+      <div class="submit-note">
+        ⚡ Response within 2 hours during business hours<br>
+        🔒 Your data is secure and never shared
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SUCCESS -->
+<div class="success-overlay" id="success-overlay">
+  <div class="success-box">
+    <div class="success-icon">✅</div>
+    <div class="success-title">TRANSMISSION COMPLETE</div>
+    <div class="success-msg">Your quote request has been received. Our team will contact you within 2 business hours via your preferred method.</div>
+    <button class="success-close" onclick="closeSuccess()">ACKNOWLEDGED</button>
+  </div>
+</div>
+
+<script>
+  // Clock
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('live-clock').textContent = now.toLocaleTimeString('en-AU', {hour12: false, timeZone: 'Australia/Sydney'}) + ' AEST';
+  }
+  setInterval(updateClock, 1000); updateClock();
+
+  // Map interaction
+  let pickupCity = null, dropoffCity = null;
+  let pickupX, pickupY, dropoffX, dropoffY;
+  const step = { current: 'pickup' };
+
+  const cityCoords = {
+    'Perth': { lat: -31.9, lng: 115.9 },
+    'Darwin': { lat: -12.5, lng: 130.8 },
+    'Adelaide': { lat: -34.9, lng: 138.6 },
+    'Melbourne': { lat: -37.8, lng: 145.0 },
+    'Sydney': { lat: -33.9, lng: 151.2 },
+    'Brisbane': { lat: -27.5, lng: 153.0 },
+    'Alice Springs': { lat: -23.7, lng: 133.9 },
+    'Cairns': { lat: -16.9, lng: 145.8 },
+    'Hobart': { lat: -42.9, lng: 147.3 }
+  };
+
+  function haversine(lat1, lng1, lat2, lng2) {
+    const R = 6371;
+    const dLat = (lat2-lat1)*Math.PI/180;
+    const dLng = (lng2-lng1)*Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  document.querySelectorAll('.city-dot').forEach(dot => {
+    dot.addEventListener('click', function() {
+      const city = this.dataset.city;
+      const x = parseFloat(this.dataset.x);
+      const y = parseFloat(this.dataset.y);
+
+      if (step.current === 'pickup') {
+        // clear previous
+        document.querySelectorAll('.city-dot').forEach(d => { d.classList.remove('pickup','dropoff'); });
+        pickupCity = city; pickupX = x; pickupY = y;
+        this.classList.add('pickup');
+        document.getElementById('f-pickup').value = city;
+        document.getElementById('pickup-display').innerHTML = city;
+        // Move pickup marker
+        const pm = document.getElementById('pickup-marker');
+        pm.style.display = '';
+        pm.setAttribute('transform', `translate(${x},${y})`);
+        // Reset dropoff
+        dropoffCity = null;
+        document.getElementById('dropoff-display').innerHTML = '<span class="rp-empty">Click map</span>';
+        document.getElementById('f-dropoff').value = '';
+        document.getElementById('route-line').style.display = 'none';
+        document.getElementById('route-hud').classList.remove('active');
+        document.getElementById('dropoff-marker').style.display = 'none';
+        step.current = 'dropoff';
+        document.getElementById('map-instr').textContent = 'SELECT DROP-OFF POINT';
+      } else {
+        if (city === pickupCity) return;
+        dropoffCity = city; dropoffX = x; dropoffY = y;
+        this.classList.add('dropoff');
+        document.getElementById('f-dropoff').value = city;
+        document.getElementById('dropoff-display').innerHTML = city;
+        const dm = document.getElementById('dropoff-marker');
+        dm.style.display = '';
+        dm.setAttribute('transform', `translate(${x},${y})`);
+        // Draw route
+        const line = document.getElementById('route-line');
+        line.setAttribute('x1', pickupX); line.setAttribute('y1', pickupY);
+        line.setAttribute('x2', dropoffX); line.setAttribute('y2', dropoffY);
+        line.style.display = '';
+        // Calc distance
+        const c1 = cityCoords[pickupCity], c2 = cityCoords[dropoffCity];
+        if (c1 && c2) {
+          const km = Math.round(haversine(c1.lat, c1.lng, c2.lat, c2.lng));
+          const days = Math.max(1, Math.ceil(km / 800));
+          document.getElementById('hud-dist').textContent = km.toLocaleString() + ' km';
+          document.getElementById('hud-transit').textContent = days + '–' + (days+2) + ' days';
+          document.getElementById('route-hud').classList.add('active');
+        }
+        step.current = 'pickup';
+        document.getElementById('map-instr').textContent = 'ROUTE SET — CLICK TO RESET';
+      }
+    });
+
+    dot.addEventListener('mousemove', function(e) {
+      const city = this.dataset.city;
+      const coords = cityCoords[city];
+      if (coords) {
+        document.getElementById('hud-lat').textContent = coords.lat.toFixed(2) + '°S';
+        document.getElementById('hud-lng').textContent = coords.lng.toFixed(2) + '°E';
+      }
+    });
+  });
+
+  function selectUrgency(el, val) {
+    document.querySelectorAll('.urgency-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('f-priority').value = val;
+  }
+  document.querySelector('.urgency-btn').classList.add('active');
+
+  function submitForm() {
+    const required = ['f-fname','f-lname','f-phone','f-email'];
+    let valid = true;
+    required.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el.value.trim()) { el.style.borderColor = 'var(--danger)'; valid = false; }
+      else el.style.borderColor = '';
+    });
+    if (!pickupCity || !dropoffCity) {
+      alert('Please select pickup and drop-off locations on the map.');
+      return;
+    }
+    if (!valid) { alert('Please complete all required fields.'); return; }
+
+    // EmailJS / mailto fallback (client configures EmailJS)
+    const body = `
+QUOTE REQUEST — HAULROUTE AU
+=============================
+ROUTE: ${pickupCity} → ${dropoffCity}
+
+CONTACT:
+Name: ${document.getElementById('f-fname').value} ${document.getElementById('f-lname').value}
+Company: ${document.getElementById('f-company').value || 'N/A'}
+Phone: ${document.getElementById('f-phone').value}
+Email: ${document.getElementById('f-email').value}
+Preferred Contact: ${document.getElementById('f-contact-pref').value}
+
+VEHICLE:
+Type: ${document.getElementById('f-truck-type').value}
+Make/Model: ${document.getElementById('f-make').value} ${document.getElementById('f-model').value}
+Dimensions: ${document.getElementById('f-len').value}m L × ${document.getElementById('f-wid').value}m W × ${document.getElementById('f-hgt').value}m H
+Weight: ${document.getElementById('f-weight').value}t  Year: ${document.getElementById('f-year').value}
+Condition: ${document.getElementById('f-condition').value}
+Oversize: ${document.getElementById('f-oversize').value}
+
+SHIPMENT:
+Pickup Date: ${document.getElementById('f-date').value}
+Flexibility: ${document.getElementById('f-flex').value}
+Priority: ${document.getElementById('f-priority').value}
+Notes: ${document.getElementById('f-notes').value}
+    `.trim();
+
+    const mailtoLink = `mailto:quotes@haulroute.com.au?subject=Quote Request: ${pickupCity} → ${dropoffCity}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoLink;
+    document.getElementById('success-overlay').classList.add('show');
+  }
+
+  function closeSuccess() {
+    document.getElementById('success-overlay').classList.remove('show');
+  }
+</script>
+</body>
+</html>
